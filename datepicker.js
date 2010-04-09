@@ -21,7 +21,7 @@
 
 var DatePicker = new Class({
 	
-	Implements: Options,
+	Implements: [Options, Events],
 	
 	// working date, which we will keep modifying to render the calendars
 	d: '',
@@ -47,7 +47,10 @@ var DatePicker = new Class({
 	input: null,       // original input element (used for input/output)
 	visual: null,      // visible input (used for rendering)
 	
-	options: { 
+	options: {/*
+		onShow: function(){}, // triggered when the datepicker pops up
+		onClose: function(){}, // triggered after the datepicker is closed (destroyed)
+		onSelect: function(date){}, // triggered when a date is selected */
 		pickerClass: 'datepicker',
 		days: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
 		months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
@@ -69,11 +72,6 @@ var DatePicker = new Class({
 		maxDate: null, // same as minDate
 		debug: false,
 		toggleElements: null,
-		
-		// and some event hooks:
-		onShow: $empty,   // triggered when the datepicker pops up
-		onClose: $empty,  // triggered after the datepicker is closed (destroyed)
-		onSelect: $empty  // triggered when a date is selected
 	},
 	
 	initialize: function(attachTo, options) {
@@ -192,7 +190,7 @@ var DatePicker = new Class({
 		this.show({ left: d.left + this.options.positionOffset.x, top: d.top + d.height + this.options.positionOffset.y }, init_visual_date);
 		this.input = original_input;
 		this.visual = visual_input;
-		this.options.onShow();
+		this.fireEvent('show');
 	},
 	
 	dateToObject: function(d) {
@@ -597,7 +595,7 @@ var DatePicker = new Class({
 	destroy: function() {
 		this.picker.destroy();
 		this.picker = null;
-		this.options.onClose();
+		this.fireEvent('onClose');
 	},
 	
 	select: function(values) {
@@ -605,7 +603,7 @@ var DatePicker = new Class({
 		var d = this.dateFromObject(this.choice);
 		this.input.set('value', this.format(d, this.options.inputOutputFormat));
 		this.visual.set('value', this.format(d, this.options.format));
-		this.options.onSelect(d);
+		this.fireEvent('select', d);
 		this.close(null, true);
 	},
 	
@@ -693,9 +691,9 @@ var DatePicker = new Class({
 		}
 		
 		for (c in a) {
-			var v = a[c];
+			var v = a[c].toInt();
 			switch(c) {
-				case 'y': d.setFullYear(v < 30 ? 2000 + v.toInt() : 1900 + v.toInt()); break; // assume between 1930 - 2029
+				case 'y': d.setFullYear(v < 30 ? 2000 + v : 1900 + v); break; // assume between 1930 - 2029
 				case 'Y': d.setFullYear(v); break;
 				case 'm':
 				case 'n': d.setMonth(v - 1); break;
@@ -707,10 +705,10 @@ var DatePicker = new Class({
 				case 'G': 
 				case 'H': d.setHours(v); break;
 				case 'g': 
-				case 'h': if (a['a'] == 'pm' || a['A'] == 'PM') { d.setHours(v == 12 ? 0 : v.toInt() + 12); } else { d.setHours(v); } break;
+				case 'h': if (a['a'] == 'pm' || a['A'] == 'PM') { d.setHours(v == 12 ? 0 : v + 12); } else { d.setHours(v); } break;
 				case 'i': d.setMinutes(v); break;
 				case 's': d.setSeconds(v); break;
-				case 'U': d = new Date(v.toInt() * 1000);
+				case 'U': d = new Date(v * 1000);
 			}
 		};
 		
