@@ -116,13 +116,11 @@ var DatePicker = new Class({
 			// never double attach
 			if (item.retrieve('datepicker')) return;
 			
-			// determine starting value(s)
-			if ($chk(item.get('value'))) {
-				var init_clone_val = this.format(new Date(this.unformat(item.get('value'), this.options.inputOutputFormat)), this.options.format);
-			} else if (!this.options.allowEmpty) {
-				var init_clone_val = this.format(new Date(), this.options.format);
-			} else {
-				var init_clone_val = '';
+			// determine starting value
+			var value = item.get('value');
+			
+			if (!value && !this.options.allowEmpty) {
+			  value = this.format(new Date(), this.options.format);
 			}
 			
 			// create clone
@@ -140,7 +138,7 @@ var DatePicker = new Class({
 			// make sure clone doesn't get submitted with the form
 			clone.removeProperty('name');
 			
-			clone.set('value', init_clone_val);
+			clone.set('value', value);
 			clone.inject(item, 'after');
 			
 			// events
