@@ -126,16 +126,22 @@ var DatePicker = new Class({
 			}
 			
 			// create clone
-			var display = item.getStyle('display');
-			var clone = item
-			.setStyle('display', this.options.debug ? display : 'none')
-			.store('datepicker', true) // to prevent double attachment...
-			.clone()
-			.store('datepicker', true) // ...even for the clone (!)
-			.removeProperty('name')    // secure clean (form)submission
-			.setStyle('display', display)
-			.set('value', init_clone_val)
-			.inject(item, 'after');
+			var clone = item.clone();
+			
+			// hide old input
+			if (!this.options.debug) {
+			  item.setStyle('display', 'none');
+			}
+			
+			// prevent double attachment
+			item.store('datepicker', true);
+			clone.store('datepicker', true); // even for the clone
+			
+			// make sure clone doesn't get submitted with the form
+			clone.removeProperty('name');
+			
+			clone.set('value', init_clone_val);
+			clone.inject(item, 'after');
 			
 			// events
 			if ($chk(this.options.toggleElements)) {
