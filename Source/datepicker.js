@@ -85,10 +85,10 @@ var DatePicker = new Class({
 		useFadeInOut: !Browser.Engine.trident, // dont animate fade-in/fade-out for IE
 		startView: 'month', // allowed values: {time, month, year, decades}
 		positionOffset: { x: 0, y: 0 },
-		minDate: null, // { date: '[date-string]', format: '[date-string-interpretation-format]' }
+		minDate: null, // Date object or a string
 		maxDate: null, // same as minDate
-		debug: false,
-		toggleElements: null,
+		toggleElements: null, // deprecated
+		toggle: null,
 		draggable: true/*,
 		// i18n
 		months: null,
@@ -103,57 +103,63 @@ var DatePicker = new Class({
 	},
 	
 	initialize: function(attachTo, options) {
+		// MooTools.lang
 		this.setOptions({
 			days: MooTools.lang.get('Date', 'days'),
 			months: MooTools.lang.get('Date', 'months'),
 			format: MooTools.lang.get('Date', 'shortDate')
 		});
+		var oldFormat = this.options.format;
 		this.setOptions(options);
+		if (this.options.timePicker && this.options.format == oldFormat) {
+			var timeFormat = MooTools.lang.get('Date', 'shortTime');
+			this.options.format = this.options.timePickerOnly ? timeFormat : this.options.format + ' ' + timeFormat;
+		}
 		
-		this.attach(attachTo, this.options.toggleElements);
+		// Support for deprecated toggleElements
+		if(this.options.toggleElements) this.toggle = document.getElements(this.toggleElements);
+		
+		this.attach(attachTo, this.options.toggle);
+		
 		if (this.options.timePickerOnly) {
 			this.options.timePicker = true;
 			this.options.startView = 'time';
 		}
-		this.formatMinMaxDates();
-		document.addEvent('mousedown', this.close.bind(this));
-	},
-	
-	formatMinMaxDates: function() {
-		if (this.options.minDate && this.options.minDate.inputFormat) {  //cbaxter changed minDate.format for minDate.inputFormat to address issues when implemented with MooTools.Date extension due to date.format() being confused with date.format string
-			this.options.minDate = this.unformat(this.options.minDate.date, this.options.minDate.inputFormat);
+
+		if (this.options.minDate) {
+			if(!(this.options.minDate instanceof Date)) this.options.minDate = Date.parse(this.options.minDate);
 		}
-		if (this.options.maxDate && this.options.maxDate.inputFormat) {
-			this.options.maxDate = this.unformat(this.options.maxDate.date, this.options.maxDate.inputFormat);
+		if (this.options.maxDate) {
+			if(!(this.options.maxnDate instanceof Date)) this.options.maxDate = Date.parse(this.options.maxDate);
 			this.options.maxDate.setHours(23);
 			this.options.maxDate.setMinutes(59);
 			this.options.maxDate.setSeconds(59);
 		}
+
+		document.addEvent('mousedown', this.close.bindWithEvent(this));
 	},
 	
-	attach: function(attachTo, toggleElements) {
+	attach: function(attachTo, toggle) {
 
 		//dont bother trying to attach when not set
-		if (!$chk(attachTo)) return;
+		if (!attachTo) return;
 
 		// toggle the datepicker through a separate element?
-		if ($chk(toggleElements)) {
-			var togglers = document.getElements(toggleElements);
+		if (toggle) {
+			var togglers = $type(toggle) == 'array' ? toggle : [document.id(toggle)];
 			document.addEvents({
 				'keydown': function(e) {
-					if (e.key == "tab") {
-						this.close(null, true);
-					}
+					if (e.key == "tab") this.close(null, true);
 				}.bind(this)
 			});
 		};
 		
 		// see what is being attached and get an array suitable for it
-		var elems = $type(attachTo) == 'element' ? [attachTo] : document.getElements(attachTo);
+		var elems = $type(attachTo) == 'array' ? attachTo : [document.id(attachTo)];
 		
 		// attach functionality to the inputs
 		elems.each(function(item, index) {
-			// never double attach
+			
 			if (item.retrieve('datepicker')) return;
 			
 			// determine starting value
@@ -167,17 +173,30 @@ var DatePicker = new Class({
 			item.store('datepicker', true);
 			
 			// events
-			if ($chk(toggleElements)) {
-				togglers[index]
+			if (toggle && togglers) {
+				var self = this;
+				var events = {
+					'click': function(e){
+						if (e) e.stop();
+						var open = false;
+						if (!this.retrieve('datepicker:open')) {
+							self.show(item, togglers[index]);
+							open = true;
+						}
+						this.store('datepicker:open',open);
+					}
+					
+				};
+				var toggler = togglers[index]
 					.setStyle('cursor', 'pointer')
-					.addEvents({
-						'click': function(e) {
-							this.onFocus(item,togglers[index]);
-						}.bind(this)
-					});
+					.addEvents(events);
+				item.store('datepicker:toggler',toggler)
+					.store('datepicker:events',events);
+					
 			} else {
-				item.addEvents({
-					'keydown': function(e) {
+				var events = {
+					'keydown': function(e){
+						// prevent the user from typing in the field
 						if (this.options.allowEmpty && (e.key == "delete" || e.key == "backspace")) {
 							item.set('value', '');
 							this.close(null, true);
@@ -187,72 +206,64 @@ var DatePicker = new Class({
 							e.stop();
 						}
 					}.bind(this),
-					'focus': function(e) {
-						this.onFocus(item);
-					}.bind(this)
-				});
+					'focus': this.show.bind(this,[item])
+				};
+				
+				item.addEvents(events).store('datepicker:events',events);
 			}
 		}.bind(this));
+		
+		return this;
 	},
 	
-	onFocus: function(input,toggler) {
-		var input_date, d = ($defined(toggler) ? toggler:input).getCoordinates();
+	detach: function(detach){
+		var elems = $type(detach) == 'array' ? detach : [document.id(detach)];
 		
-		if ($chk(input.get('value'))) {
-			input_date = this.unformat(input.get('value'),this.options.format).valueOf();
-		} else {
-			input_date = new Date();
-			if ($chk(this.options.maxDate) && input_date.valueOf() > this.options.maxDate.valueOf()) {
-				input_date = new Date(this.options.maxDate.valueOf());
-			}
-			if ($chk(this.options.minDate) && input_date.valueOf() < this.options.minDate.valueOf()) {
-				input_date = new Date(this.options.minDate.valueOf());
+		elems.each(function(item){
+			// Only when the datepicker is attached
+			if (!item.retrieve('datepicker')) return;
+		
+			var toggler = item.retrieve('datepicker:toggler');
+			var events = item.retrieve('datepicker:events');
+			// Detach the Events
+			(toggler ? toggler : item).removeEvents(events);			
+		});
+		
+		return this;
+	},
+	
+	show: function(input,toggler,timestamp) {
+		input = document.id(input);
+		// Cannot show the picker if its not attached
+		if(!input.retrieve('datepicker')) return;
+		
+		// Determine the date that should be opened
+		if (timestamp) {
+			this.d = new Date(timestamp);
+		} else {		
+			this.d = input.retrieve('datepicker:value') || input.get('value');
+			if(!this.d){
+				this.d = new Date();
+			}else if(!(this.d instanceof Date)){
+				this.d = Date.parse(this.d);
 			}
 		}
+		// Min/max date
+		if (this.options.maxDate && this.d > this.options.maxDate) 
+			this.d = this.options.maxDate;
+		if (this.options.minDate && this.d < this.options.minDate) 
+			this.d = this.options.minDate;
 		
 		this.input = input;
-		this.show({ left: d.left + this.options.positionOffset.x, top: d.top + d.height + this.options.positionOffset.y }, input_date);
-		this.fireEvent('show');
-	},
-	
-	dateToObject: function(d) {
-		return {
-			year: d.getFullYear(),
-			month: d.getMonth(),
-			day: d.getDate(),
-			hours: d.getHours(),
-			minutes: d.getMinutes(),
-			seconds: d.getSeconds()
+		var d = (toggler ? document.id(toggler) : input).getCoordinates();
+		var position = {
+			left: d.left + this.options.positionOffset.x,
+			top: d.top + d.height + this.options.positionOffset.y
 		};
-	},
-	
-	dateFromObject: function(values) {
-		var d = new Date();
-		d.setDate(1);
-		['year', 'month', 'day', 'hours', 'minutes', 'seconds'].each(function(type) {
-			var v = values[type];
-			if (!$chk(v)) return;
-			switch (type) {
-				case 'day': d.setDate(v); break;
-				case 'month': d.setMonth(v); break;
-				case 'year': d.setFullYear(v); break;
-				case 'hours': d.setHours(v); break;
-				case 'minutes': d.setMinutes(v); break;
-				case 'seconds': d.setSeconds(v); break;
-			}
-		});
-		return d;
-	},
-	
-	show: function(position, timestamp) {
-		this.formatMinMaxDates();
-		if ($chk(timestamp)) {
-			this.d = new Date(timestamp);
-		} else {
-			this.d = new Date();
-		}
+		this.fireEvent('show');
+		
 		this.today = new Date();
-		this.choice = this.dateToObject(this.d);
+		this.choice = this.d.toObject();
 		this.mode = (this.options.startView == 'time' && !this.options.timePicker) ? 'month' : this.options.startView;
 		this.render();
 		this.position({x: position.left, y: position.top});
@@ -263,11 +274,30 @@ var DatePicker = new Class({
 		}
 		
 		if(Browser.Engine.trident) this.shim();
+		
+		return this;
 	},
+
+	close: function(e, force) {
+		if (!document.id(this.picker)) return;
+		if($type(e) != 'event') force = true;
+		var clickOutside = e && e.target != this.picker && !this.picker.hasChild(e.target) && e.target != this.visual;
+		if (force || clickOutside) {
+			if (this.options.useFadeInOut) {
+				this.picker.set('tween', { duration: this.options.animationDuration / 2, onComplete: this.destroy.bind(this) }).tween('opacity', 1, 0);
+			} else {
+				this.destroy();
+			}
+		}
+		
+		return this;
+	},
+	
+	// Protected/Private methods
 
 	shim: function() {
 		var coords = this.picker.setStyle('zIndex', 1000).getCoordinates();
-		this.frame = new Element('iframe', {
+		var frame = this.frame = new Element('iframe', {
 			src: 'javascript:false;document.write("");',
 			styles: {
 				position: 'absolute',
@@ -278,12 +308,12 @@ var DatePicker = new Class({
 		}).inject(document.body);
 		this.frame.style.filter = 'progid:DXImageTransform.Microsoft.Alpha(style=0,opacity=0)';
     
-		this.addEvent('close', function() {this.destroy()}.bind(this.frame));
+		this.addEvent('close', function() {frame.destroy()});
 		
-		if(this.options.draggable) {
+		if(this.dragger) {
 			this.dragger.addEvent('drag', function() {
 				var coords = this.picker.getCoordinates();
-				this.frame.setStyles({left: coords.left, top: coords.top});
+				frame.setStyles({left: coords.left, top: coords.top});
 			}.bind(this));
 		}
 	},
@@ -303,7 +333,7 @@ var DatePicker = new Class({
 	},
 		
 	render: function(fx) {
-		if (!$chk(this.picker)) {
+		if (!this.picker) {
 			this.constructPicker();
 		} else {
 			// swap contents so we can fill the newContents again and animate
@@ -345,7 +375,7 @@ var DatePicker = new Class({
 		}
 		
 		// animate
-		if ($chk(fx)) this.fx(fx);
+		if (fx) this.fx(fx);
 	},
 	
 	fx: function(fx) {
@@ -391,7 +421,7 @@ var DatePicker = new Class({
 		if (this.options.timePickerOnly) {
 			this.picker.getElement('.titleText').set('text', 'Select a time');
 		} else {
-			this.picker.getElement('.titleText').set('text', this.format(this.d, 'j M, Y'));
+			this.picker.getElement('.titleText').set('text', this.d.format('j M, Y'));
 		}
 		
 		new Element('input', { type: 'text', 'class': 'hour' })
@@ -436,7 +466,7 @@ var DatePicker = new Class({
 			.addEvents({
 				click: function(e) {
 					e.stop();
-					this.select($merge(this.dateToObject(this.d), { hours: this.picker.getElement('.hour').get('value').toInt(), minutes: this.picker.getElement('.minutes').get('value').toInt() }));
+					this.select($merge(this.d.toObject(), { hours: this.picker.getElement('.hour').get('value').toInt(), minutes: this.picker.getElement('.minutes').get('value').toInt() }));
 				}.bind(this)
 			})
 			.set('maxlength', 2)
@@ -463,7 +493,7 @@ var DatePicker = new Class({
 		
 		var available = false;
 		var t = this.today.toDateString();
-		var currentChoice = this.dateFromObject(this.choice).toDateString();
+		var currentChoice = Date.fromObject(this.choice).toDateString();
 		
 		for (i = 0; i < 42; i++) {
 			classes = [];
@@ -512,7 +542,7 @@ var DatePicker = new Class({
 		
 		this.picker.getElement('.titleText').set('text', this.d.getFullYear());
 		this.d.setMonth(0);
-		if ($chk(this.options.minDate)) {
+		if (this.options.minDate) {
 			this.d.decrement('month',1)
 			this.d.set('date',this.d.get('lastdayofmonth'));
 			if (this.limited('month')) {
@@ -563,7 +593,7 @@ var DatePicker = new Class({
 		var available = false;
 		var container = new Element('div', { 'class': 'years' }).inject(this.newContents);
 		
-		if ($chk(this.options.minDate) && this.d.getFullYear() <= this.options.minDate.getFullYear()) {
+		if (this.options.minDate && this.d.getFullYear() <= this.options.minDate.getFullYear()) {
 			this.limit.left = true;
 		}
 		
@@ -591,14 +621,14 @@ var DatePicker = new Class({
 		if (!available) {
 			this.limit.right = true;
 		}
-		if ($chk(this.options.maxDate) && this.d.getFullYear() >= this.options.maxDate.getFullYear()) {
+		if (this.options.maxDate && this.d.getFullYear() >= this.options.maxDate.getFullYear()) {
 			this.limit.right = true;
 		}
 	},
 	
 	limited: function(type) {
-		var cs = $chk(this.options.minDate);
-		var ce = $chk(this.options.maxDate);
+		var cs = this.options.minDate;
+		var ce = this.options.maxDate;
 		if (!cs && !ce) return false;
 		
 		switch (type) {
@@ -660,19 +690,7 @@ var DatePicker = new Class({
 		this.render('right');
 		this.fireEvent('next');
 	},
-	
-	close: function(e, force) {
-		if (!document.id(this.picker)) return;
-		var clickOutside = ($chk(e) && e.target != this.picker && !this.picker.hasChild(e.target) && e.target != this.visual);
-		if (force || clickOutside) {
-			if (this.options.useFadeInOut) {
-				this.picker.set('tween', { duration: this.options.animationDuration / 2, onComplete: this.destroy.bind(this) }).tween('opacity', 1, 0);
-			} else {
-				this.destroy();
-			}
-		}
-	},
-	
+		
 	destroy: function() {
 		this.picker.destroy();
 		this.picker = null;
@@ -681,30 +699,53 @@ var DatePicker = new Class({
 	
 	select: function(values) {
 		this.choice = $merge(this.choice, values);
-		var d = this.dateFromObject(this.choice);
-		this.input.set('value', this.format(d, this.options.format));
+		var d = Date.fromObject(this.choice);
+		this.input.set('value', d.format(this.options.format))
+			.store('datepicker:value',d);
 		this.fireEvent('select', d);
 		this.close(null, true);
 	},
 	
 	leadZero: function(v) {
 		return v < 10 ? '0'+v : v;
-	},
-	
-	format: function(t, format) {
-		return new Date(t).format(format);
-	},
-	
-	unformat: function(t,format) {
-		Date.defineParser(format);
-		t = Date.parse(t);
-		
-		if(!t.isValid()) {
-			t = new Date();
-		}
-		
-		t = (t.get('year') < 1900) ? new Date() : t;
-		
-		return t;
 	}
+	
+});
+
+
+Date.implement({
+	
+	toObject: function() {
+		return {
+			year: this.getFullYear(),
+			month: this.getMonth(),
+			day: this.getDate(),
+			hours: this.getHours(),
+			minutes: this.getMinutes(),
+			seconds: this.getSeconds()
+		};
+	}
+});
+
+Date.extend({
+	
+	fromObject: function(values) {
+		values = values || {};
+		var d = new Date();
+		d.setDate(1);
+		['year', 'month', 'day', 'hours', 'minutes', 'seconds'].each(function(type) {
+			var v = values[type];
+			if (!$chk(v)) return;
+			switch (type) {
+				case 'day': d.setDate(v); break;
+				case 'month': d.setMonth(v); break;
+				case 'year': d.setFullYear(v); break;
+				case 'hours': d.setHours(v); break;
+				case 'minutes': d.setMinutes(v); break;
+				case 'seconds': d.setSeconds(v); break;
+			}
+		});
+		return d;
+	}
+
 });
