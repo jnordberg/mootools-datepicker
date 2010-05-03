@@ -722,7 +722,7 @@ Date.implement({
 	},
 	
 	isValid: function(){
-		return !!(this.getDate() && this.getMonth() && this.getYear());
+		return !isNaN(this);
 	}
 	
 });
